@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: readaloud
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-readaloud}
+      POSTGRES_DB: readaloud
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U readaloud"]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://readaloud:${POSTGRES_PASSWORD:-readaloud}@db:5432/readaloud
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  uploads:
