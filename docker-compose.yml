@@ -18,6 +18,7 @@ services:
       DATABASE_URL: postgresql://readaloud:${POSTGRES_PASSWORD:-readaloud}@db:5432/readaloud
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    command: sh -c "flask db upgrade && exec gunicorn --bind 0.0.0.0:8000 --workers 2 wsgi:app"
     ports:
       - "8000:8000"
     volumes:
