@@ -11,7 +11,7 @@ class Config:
     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/data/uploads")
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
     # Characters of document text sent to the LLM as context.
     LLM_CONTEXT_CHARS = int(os.environ.get("LLM_CONTEXT_CHARS", "60000"))
     # Approximate size of one chunk handed to the device TTS engine.

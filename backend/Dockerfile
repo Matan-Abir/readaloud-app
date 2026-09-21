@@ -14,6 +14,8 @@ COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* && rm -rf /wheels
 COPY --chown=appuser app ./app
 COPY --chown=appuser wsgi.py .
+COPY --chown=appuser migrations ./migrations
+ENV FLASK_APP=wsgi:app
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"

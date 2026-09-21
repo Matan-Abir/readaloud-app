@@ -1,7 +1,12 @@
+import time
+
 import requests
 from flask import current_app
 
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+RETRYABLE = {429, 503}
+MAX_ATTEMPTS = 3
 
 
 class LLMError(Exception):
@@ -13,21 +18,30 @@ def generate(prompt):
     if not key:
         raise LLMError("LLM is not configured (GEMINI_API_KEY missing)")
     url = API_URL.format(model=current_app.config["GEMINI_MODEL"])
-    try:
-        resp = requests.post(
-            url,
-            headers={"x-goog-api-key": key},
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=60,
-        )
-    except requests.RequestException as exc:
-        raise LLMError(f"LLM request failed: {exc}") from exc
+    resp = None
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            resp = requests.post(
+                url,
+                headers={"x-goog-api-key": key},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=60,
+            )
+        except requests.RequestException as exc:
+            raise LLMError(f"LLM request failed: {exc}") from exc
+        if resp.status_code not in RETRYABLE or attempt == MAX_ATTEMPTS - 1:
+            break
+        time.sleep(2 ** attempt)
     if resp.status_code != 200:
         raise LLMError(f"LLM returned HTTP {resp.status_code}")
     try:
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (KeyError, IndexError, ValueError) as exc:
+        parts = resp.json()["candidates"][0]["content"]["parts"]
+        text = "".join(p["text"] for p in parts if "text" in p and not p.get("thought"))
+    except (KeyError, IndexError, ValueError, TypeError) as exc:
         raise LLMError("Unexpected LLM response format") from exc
+    if not text.strip():
+        raise LLMError("LLM returned an empty response")
+    return text.strip()
 
 
 def summarize(text):
