@@ -67,9 +67,7 @@ jobs:
       - name: Build image
         run: docker build -t readaloud-backend:${{ github.sha }} backend
       - name: Trivy scan (fail on HIGH/CRITICAL with a fix available)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: readaloud-backend:${{ github.sha }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 \
+            image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+            readaloud-backend:${{ github.sha }}
