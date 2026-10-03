@@ -19,4 +19,5 @@ ENV FLASK_APP=wsgi:app
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "wsgi:app"]
+# One process per container keeps Prometheus counters consistent; scale with replicas.
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "4", "--access-logfile", "-", "wsgi:app"]

@@ -1,0 +1,75 @@
+# Fast feedback on every push / PR. The full pipeline (SonarQube, deploy to
+# Minikube, smoke test) runs in Jenkins - see readaloud-devops/Jenkinsfile.
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks detect --source . --redact --verbose
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: flake8 .
+      - name: Test
+        run: pytest --cov=app --cov-report=xml --cov-report=term
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: backend/coverage.xml
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  image:
+    needs: [backend, secrets-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t readaloud-backend:${{ github.sha }} backend
+      - name: Trivy scan (fail on HIGH/CRITICAL with a fix available)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: readaloud-backend:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
