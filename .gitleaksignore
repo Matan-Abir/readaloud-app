@@ -1,0 +1,3 @@
+# Reviewed false positives (gitleaks fingerprints). Add new entries only after review.
+# Test-only JWT key in TestConfig; never used outside pytest.
+1c9e2eba89b561879d1a78cba8f885c0a2cbb655:backend/app/config.py:generic-api-key:24
