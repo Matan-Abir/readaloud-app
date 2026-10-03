@@ -7,6 +7,8 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 # ---- runtime: minimal, non-root ----
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Pick up Debian security fixes newer than the base image (Trivy gate).
+RUN apt-get update && apt-get -y upgrade && rm -rf /var/lib/apt/lists/*
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /data/uploads && chown appuser /data/uploads
 WORKDIR /app
