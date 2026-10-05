@@ -33,6 +33,24 @@ class DeviceSpeaker implements Speaker {
   Future<void> setRate(double multiplier) => _tts.setSpeechRate((0.5 * multiplier).clamp(0.1, 1.0));
 }
 
+/// Start of the word containing [index] in [text] (or of the next word when
+/// [index] falls on whitespace), so a tap lands on a whole word.
+int wordStartAt(String text, int index) {
+  if (text.isEmpty) return 0;
+  var i = index.clamp(0, text.length - 1);
+  bool isSpace(int at) => text[at].trim().isEmpty;
+  if (isSpace(i)) {
+    while (i < text.length && isSpace(i)) {
+      i++;
+    }
+    return i.clamp(0, text.length - 1);
+  }
+  while (i > 0 && !isSpace(i - 1)) {
+    i--;
+  }
+  return i;
+}
+
 /// Streams a document's text chunks to the speech engine, remembers where the
 /// user is, and saves progress on the server so listening can resume anywhere.
 class ReaderController extends ChangeNotifier {
@@ -53,6 +71,9 @@ class ReaderController extends ChangeNotifier {
   int _fetchFrom = 0;
   int _generation = 0;
   String currentText = '';
+
+  /// Document offset of the first character of [currentText].
+  int currentOffset = 0;
   bool playing = false;
   bool finished = false;
   String? error;
@@ -90,6 +111,7 @@ class ReaderController extends ChangeNotifier {
         }
         final chunk = _buffer.removeAt(0);
         _offset = chunk.offset;
+        currentOffset = chunk.offset;
         currentText = chunk.text;
         notifyListeners();
         _saveProgress(_offset);
@@ -122,6 +144,17 @@ class ReaderController extends ChangeNotifier {
     _offset = (_offset + chars).clamp(0, doc.textLength);
     notifyListeners();
     if (wasPlaying) await play();
+  }
+
+  /// Start reading from the word at [index] within [currentText]. Restarts
+  /// playback if it was running, and starts it if it wasn't.
+  Future<void> playFromCurrentText(int index) async {
+    if (currentText.isEmpty) return;
+    await pause();
+    _offset = (currentOffset + wordStartAt(currentText, index)).clamp(0, doc.textLength);
+    finished = false;
+    notifyListeners();
+    await play();
   }
 
   Future<void> setSpeed(double multiplier) async {
