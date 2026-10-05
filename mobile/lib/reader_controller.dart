@@ -63,7 +63,7 @@ class ReaderController extends ChangeNotifier {
 
   final ApiClient api;
   final DocumentInfo doc;
-  final Speaker speaker;
+  Speaker speaker;
   final int batchSize;
 
   final List<TextChunk> _buffer = [];
@@ -155,6 +155,19 @@ class ReaderController extends ChangeNotifier {
     finished = false;
     notifyListeners();
     await play();
+  }
+
+  /// Swap the voice (e.g. natural <-> device), continuing from the current
+  /// passage if it was playing.
+  Future<void> useSpeaker(Speaker next) async {
+    if (identical(next, speaker)) return;
+    final wasPlaying = playing;
+    await pause();
+    speaker = next;
+    await speaker.init();
+    await speaker.setRate(speed);
+    notifyListeners();
+    if (wasPlaying) await play();
   }
 
   Future<void> setSpeed(double multiplier) async {

@@ -181,4 +181,24 @@ class ApiClient extends ChangeNotifier {
     final body = await _send(() => _http.get(_uri('/api/documents/$id/history'), headers: _headers));
     return (body as List).map((e) => QaEntry(e['question'] as String, e['answer'] as String)).toList();
   }
+
+  /// Whether the server's natural voice (Piper) is available, and its name.
+  Future<({bool available, String? voice})> ttsStatus() async {
+    final body = await _send(() => _http.get(_uri('/api/tts'), headers: _headers));
+    return (available: body['available'] == true, voice: body['voice'] as String?);
+  }
+
+  /// WAV audio of [text] spoken by the server's natural voice.
+  Future<Uint8List> synthesize(String text, {double speed = 1.0}) async {
+    final http.Response r;
+    try {
+      r = await _http
+          .post(_uri('/api/tts'), headers: _headers, body: jsonEncode({'text': text, 'speed': speed}))
+          .timeout(const Duration(seconds: 30));
+    } catch (_) {
+      throw ApiException('Cannot reach the server. Check your connection.');
+    }
+    if (r.statusCode == 200) return r.bodyBytes;
+    return _decode(r); // throws ApiException with the server's message
+  }
 }

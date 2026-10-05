@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../api.dart';
+import '../natural_speaker.dart';
 import '../reader_controller.dart';
 
 class ReaderScreen extends StatefulWidget {
@@ -16,14 +17,24 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
+  final Speaker _deviceVoice = DeviceSpeaker();
   late final ReaderController _reader = ReaderController(
     api: widget.api,
     doc: widget.doc,
-    speaker: widget.speaker ?? DeviceSpeaker(),
+    speaker: widget.speaker ?? _deviceVoice,
   )..init();
+  late final VoiceChoice _voice = VoiceChoice(_reader);
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to the natural (Piper) voice when the server offers it.
+    if (widget.speaker == null) _voice.detect(widget.api, _deviceVoice);
+  }
 
   @override
   void dispose() {
+    _voice.dispose();
     _reader.dispose();
     super.dispose();
   }
@@ -42,7 +53,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ]),
         ),
         body: TabBarView(children: [
-          _ListenTab(reader: _reader),
+          _ListenTab(reader: _reader, voice: _voice),
           _SummaryTab(api: widget.api, doc: widget.doc),
           _AskTab(api: widget.api, doc: widget.doc),
         ]),
@@ -51,10 +62,67 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 }
 
-class _ListenTab extends StatelessWidget {
-  _ListenTab({required this.reader});
+/// Natural (server, Piper) vs device voice for the Listen tab.
+class VoiceChoice extends ChangeNotifier {
+  VoiceChoice(this.reader);
 
   final ReaderController reader;
+  Speaker? _natural;
+  Speaker? _device;
+  String? voiceName;
+  bool natural = false;
+  bool fellBack = false;
+
+  bool _disposed = false;
+
+  bool get available => _natural != null;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  Future<void> detect(ApiClient api, Speaker device) async {
+    _device = device;
+    try {
+      final status = await api.ttsStatus();
+      if (!status.available) return;
+      voiceName = status.voice;
+    } on ApiException {
+      return;
+    }
+    if (_disposed) return;
+    _natural = FallbackSpeaker(
+      primary: NaturalSpeaker(synthesize: (text, speed) => api.synthesize(text, speed: speed)),
+      secondary: device,
+      onFallback: () {
+        fellBack = true;
+        notifyListeners();
+      },
+    );
+    await setNatural(true);
+  }
+
+  Future<void> setNatural(bool on) async {
+    final next = on ? _natural : _device;
+    if (next == null) return;
+    natural = on;
+    notifyListeners();
+    await reader.useSpeaker(next);
+  }
+}
+
+class _ListenTab extends StatelessWidget {
+  _ListenTab({required this.reader, required this.voice});
+
+  final ReaderController reader;
+  final VoiceChoice voice;
   final _textKey = GlobalKey();
 
   /// Map a tap on the displayed text to a character index and read from there.
@@ -70,7 +138,7 @@ class _ListenTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: reader,
+      listenable: Listenable.merge([reader, voice]),
       builder: (context, _) {
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -143,6 +211,18 @@ class _ListenTab extends StatelessWidget {
                   ),
                 ],
               ),
+              if (voice.available)
+                SwitchListTile(
+                  dense: true,
+                  title: const Text('Natural voice'),
+                  subtitle: Text(voice.fellBack
+                      ? 'Unavailable right now, using the device voice'
+                      : voice.natural
+                          ? 'Piper · ${voice.voiceName ?? 'server voice'}'
+                          : 'Using the device voice'),
+                  value: voice.natural && !voice.fellBack,
+                  onChanged: voice.fellBack ? null : voice.setNatural,
+                ),
               const SizedBox(height: 8),
               SegmentedButton<double>(
                 showSelectedIcon: false,

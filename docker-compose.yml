@@ -19,6 +19,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
+      PIPER_URL: http://tts:5000
     command: sh -c "flask db upgrade && exec gunicorn --bind 0.0.0.0:8000 --workers 1 --threads 4 --timeout 120 --access-logfile - wsgi:app"
     ports:
       - "8000:8000"
@@ -27,6 +28,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      tts:
+        condition: service_started
+
+  # Natural voice (Piper). First build downloads the voice model (~60 MB).
+  tts:
+    build: ./tts
 
 volumes:
   pgdata:

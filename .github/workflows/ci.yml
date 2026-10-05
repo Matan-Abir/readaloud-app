@@ -64,10 +64,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -t readaloud-backend:${{ github.sha }} backend
+      - name: Build images
+        run: |
+          docker build -t readaloud-backend:${{ github.sha }} backend
+          docker build -t readaloud-tts:${{ github.sha }} tts
       - name: Trivy scan (fail on HIGH/CRITICAL with a fix available)
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 \
-            image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
-            readaloud-backend:${{ github.sha }}
+          for image in readaloud-backend readaloud-tts; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.56.2 \
+              image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+              "$image:${{ github.sha }}"
+          done
