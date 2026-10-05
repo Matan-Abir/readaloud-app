@@ -44,9 +44,12 @@ def split_chunks(text, start, size):
             cut = max(text.rfind(". ", pos, end), text.rfind("\n", pos, end))
             if cut > pos:
                 end = cut + 1
-        chunk = text[pos:end].strip()
+        segment = text[pos:end]
+        chunk = segment.strip()
         if chunk:
-            yield pos, chunk
+            # Offset of the chunk's first character, so clients can map a
+            # position inside the chunk back to the document.
+            yield pos + len(segment) - len(segment.lstrip()), chunk
         pos = end
 
 

@@ -1,10 +1,13 @@
 Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
+# Pinned: SQLAlchemy 2.1 switched the postgresql:// default driver to psycopg 3.
+SQLAlchemy==2.0.36
+alembic==1.13.3
 Flask-Migrate==4.0.7
 Flask-JWT-Extended==4.6.0
-Flask-Cors==4.0.1
+Flask-Cors==6.0.5
 psycopg2-binary==2.9.9
-pypdf==4.3.1
+pypdf==6.19.0
 requests==2.32.3
 prometheus-flask-exporter==0.23.1
 gunicorn==22.0.0

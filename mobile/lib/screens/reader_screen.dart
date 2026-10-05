@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../api.dart';
+import '../natural_speaker.dart';
 import '../reader_controller.dart';
 
 class ReaderScreen extends StatefulWidget {
@@ -15,14 +17,24 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
+  final Speaker _deviceVoice = DeviceSpeaker();
   late final ReaderController _reader = ReaderController(
     api: widget.api,
     doc: widget.doc,
-    speaker: widget.speaker ?? DeviceSpeaker(),
+    speaker: widget.speaker ?? _deviceVoice,
   )..init();
+  late final VoiceChoice _voice = VoiceChoice(_reader);
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to the natural (Piper) voice when the server offers it.
+    if (widget.speaker == null) _voice.detect(widget.api, _deviceVoice);
+  }
 
   @override
   void dispose() {
+    _voice.dispose();
     _reader.dispose();
     super.dispose();
   }
@@ -41,7 +53,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ]),
         ),
         body: TabBarView(children: [
-          _ListenTab(reader: _reader),
+          _ListenTab(reader: _reader, voice: _voice),
           _SummaryTab(api: widget.api, doc: widget.doc),
           _AskTab(api: widget.api, doc: widget.doc),
         ]),
@@ -50,33 +62,111 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 }
 
-class _ListenTab extends StatelessWidget {
-  const _ListenTab({required this.reader});
+/// Natural (server, Piper) vs device voice for the Listen tab.
+class VoiceChoice extends ChangeNotifier {
+  VoiceChoice(this.reader);
 
   final ReaderController reader;
+  Speaker? _natural;
+  Speaker? _device;
+  String? voiceName;
+  bool natural = false;
+  bool fellBack = false;
+
+  bool _disposed = false;
+
+  bool get available => _natural != null;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  Future<void> detect(ApiClient api, Speaker device) async {
+    _device = device;
+    try {
+      final status = await api.ttsStatus();
+      if (!status.available) return;
+      voiceName = status.voice;
+    } on ApiException {
+      return;
+    }
+    if (_disposed) return;
+    _natural = FallbackSpeaker(
+      primary: NaturalSpeaker(synthesize: (text, speed) => api.synthesize(text, speed: speed)),
+      secondary: device,
+      onFallback: () {
+        fellBack = true;
+        notifyListeners();
+      },
+    );
+    await setNatural(true);
+  }
+
+  Future<void> setNatural(bool on) async {
+    final next = on ? _natural : _device;
+    if (next == null) return;
+    natural = on;
+    notifyListeners();
+    await reader.useSpeaker(next);
+  }
+}
+
+class _ListenTab extends StatelessWidget {
+  _ListenTab({required this.reader, required this.voice});
+
+  final ReaderController reader;
+  final VoiceChoice voice;
+  final _textKey = GlobalKey();
+
+  /// Map a tap on the displayed text to a character index and read from there.
+  void _onTextTap(TapUpDetails details) {
+    final paragraph = _textKey.currentContext?.findRenderObject();
+    if (paragraph is! RenderParagraph) return;
+    final position = paragraph.getPositionForOffset(paragraph.globalToLocal(details.globalPosition));
+    reader.playFromCurrentText(position.offset);
+  }
 
   static const _speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: reader,
+      listenable: Listenable.merge([reader, voice]),
       builder: (context, _) {
         return Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
               Expanded(
-                child: Card(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      reader.finished
-                          ? 'Finished. Press play to start over.'
-                          : reader.currentText.isEmpty
-                              ? 'Press play to start listening.'
-                              : reader.currentText,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
+                // Full width, so the card doesn't shrink around short text.
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Card(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: reader.finished || reader.currentText.isEmpty
+                          ? Text(
+                              reader.finished ? 'Finished. Press play to start over.' : 'Press play to start listening.',
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
+                            )
+                          : MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: GestureDetector(
+                                onTapUp: _onTextTap,
+                                child: Text(
+                                  reader.currentText,
+                                  key: _textKey,
+                                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
+                                ),
+                              ),
+                            ),
                     ),
                   ),
                 ),
@@ -85,6 +175,11 @@ class _ListenTab extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(reader.error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ),
+              if (reader.currentText.isNotEmpty && !reader.finished)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text('Tap any word to read from there.', style: Theme.of(context).textTheme.bodySmall),
                 ),
               const SizedBox(height: 12),
               LinearProgressIndicator(value: reader.progress),
@@ -116,6 +211,18 @@ class _ListenTab extends StatelessWidget {
                   ),
                 ],
               ),
+              if (voice.available)
+                SwitchListTile(
+                  dense: true,
+                  title: const Text('Natural voice'),
+                  subtitle: Text(voice.fellBack
+                      ? 'Unavailable right now, using the device voice'
+                      : voice.natural
+                          ? 'Piper · ${voice.voiceName ?? 'server voice'}'
+                          : 'Using the device voice'),
+                  value: voice.natural && !voice.fellBack,
+                  onChanged: voice.fellBack ? null : voice.setNatural,
+                ),
               const SizedBox(height: 8),
               SegmentedButton<double>(
                 showSelectedIcon: false,
