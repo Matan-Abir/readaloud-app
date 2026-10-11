@@ -36,7 +36,7 @@ Uint8List wav(String s) => Uint8List.fromList(s.codeUnits);
 void main() {
   test('splitSentences splits on sentence ends and caps long sentences', () {
     expect(splitSentences('One. Two!  Three? Four'), ['One.', 'Two!', 'Three?', 'Four']);
-    expect(splitSentences('Line one\nLine two.'), ['Line one', 'Line two.']);
+    expect(splitSentences('Heading\n\nBody text.'), ['Heading', 'Body text.']);
     expect(splitSentences('aaaa bbbb cccc', maxLen: 9), ['aaaa bbbb', 'cccc']);
     expect(splitSentences('   '), isEmpty);
   });

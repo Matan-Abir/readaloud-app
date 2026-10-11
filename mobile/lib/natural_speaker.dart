@@ -5,11 +5,13 @@ import 'package:flutter/foundation.dart';
 
 import 'reader_controller.dart';
 
-/// Split [text] into sentences for per-sentence synthesis. Sentences longer
+/// Split [text] into sentences for per-sentence synthesis, at sentence ends
+/// and paragraph breaks (single line breaks never split a sentence). Sentences longer
 /// than [maxLen] are cut at the last space before the limit.
 List<String> splitSentences(String text, {int maxLen = 400}) {
   final out = <String>[];
-  for (final raw in text.split(RegExp(r'(?<=[.!?…])\s+|\n+'))) {
+  // Lines are already joined (see joinLines); only paragraph breaks remain.
+  for (final raw in text.split(RegExp(r'(?<=[.!?…])\s+|\n\s*\n'))) {
     var s = raw.trim();
     while (s.length > maxLen) {
       var cut = s.lastIndexOf(' ', maxLen);
