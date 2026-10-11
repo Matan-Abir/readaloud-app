@@ -74,3 +74,15 @@ def test_llm_not_configured_returns_502(client, auth, upload):
 def test_ask_requires_question(client, auth, upload):
     doc_id = upload().get_json()["id"]
     assert client.post(f"/api/documents/{doc_id}/ask", headers=auth, json={}).status_code == 400
+
+
+def test_chunk_offsets_point_at_chunk_text():
+    from app.documents import split_chunks
+
+    text = "First sentence here. Second one follows. Third and last."
+    for offset, chunk in split_chunks(text, 0, 25):
+        assert text[offset:offset + len(chunk)] == chunk
+    # Starting mid-document (tap-to-read) begins exactly at the requested word.
+    start = text.index("Second")
+    offset, chunk = next(split_chunks(text, start, 25))
+    assert offset == start and chunk.startswith("Second")

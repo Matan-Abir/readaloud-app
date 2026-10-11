@@ -3,8 +3,19 @@
 Listen to PDFs like audiobooks; summarize and ask questions with an LLM.
 
 - `backend/` Flask API (auth, PDF upload, text chunks for TTS, Gemini summary/Q&A)
-- `mobile/` Flutter Android client (uses the phone's built-in text-to-speech)
-- `docker-compose.yml` local dev: Postgres + backend
+- `mobile/` Flutter Android/web client
+- `tts/` Piper natural-voice TTS server (Dockerfile; voice baked in at build time)
+- `docker-compose.yml` local dev: Postgres + backend + Piper
+
+## Voices
+
+The Listen tab uses the **natural voice** (Piper, `en_US-lessac-medium`) by
+default: the app sends one sentence at a time to `POST /api/tts`, the backend
+forwards it to the `tts` container and returns a WAV. If Piper isn't running
+(or fails mid-way) the app falls back to the phone/browser voice; the
+"Natural voice" switch on the Listen tab toggles between the two. Tap any word
+in the displayed passage to read from there. Another voice:
+`docker compose build --build-arg VOICE=en_GB-alba-medium tts`.
 
 ## Run the backend
 

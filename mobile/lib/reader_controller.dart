@@ -33,6 +33,51 @@ class DeviceSpeaker implements Speaker {
   Future<void> setRate(double multiplier) => _tts.setSpeechRate((0.5 * multiplier).clamp(0.1, 1.0));
 }
 
+/// Text as it should be spoken: PDF line wraps joined into one flowing line so
+/// the voice doesn't pause at every line end. "exam-\nple" becomes "example";
+/// other single line breaks become spaces; blank lines (paragraph breaks) are
+/// kept as a sentence boundary. The on-screen text is left untouched, so
+/// tap-to-read offsets still refer to the original.
+String joinLines(String text) {
+  final paragraphs = text.split(RegExp(r'\n\s*\n'));
+  return paragraphs
+      .map((p) => p
+          .replaceAllMapped(RegExp(r'(\w)-[ \t]*\r?\n[ \t]*(\w)'), (m) => '${m[1]}${m[2]}')
+          .replaceAll(RegExp(r'\s*\r?\n\s*'), ' ')
+          .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+          .trim())
+      .where((p) => p.isNotEmpty)
+      .join('\n\n');
+}
+
+/// Index just past the last sentence end (".", "!", "?" or "…", plus any
+/// closing quote/bracket, followed by whitespace) in [text], or the full
+/// length when the text ends a sentence or has no sentence end at all.
+int lastSentenceEnd(String text) {
+  final trimmed = text.trimRight();
+  if (RegExp(r'[.!?…]["”’)\]]*$').hasMatch(trimmed)) return text.length;
+  final ends = RegExp(r'[.!?…]["”’)\]]*(?=\s)').allMatches(trimmed);
+  return ends.isEmpty ? text.length : ends.last.end;
+}
+
+/// Start of the word containing [index] in [text] (or of the next word when
+/// [index] falls on whitespace), so a tap lands on a whole word.
+int wordStartAt(String text, int index) {
+  if (text.isEmpty) return 0;
+  var i = index.clamp(0, text.length - 1);
+  bool isSpace(int at) => text[at].trim().isEmpty;
+  if (isSpace(i)) {
+    while (i < text.length && isSpace(i)) {
+      i++;
+    }
+    return i.clamp(0, text.length - 1);
+  }
+  while (i > 0 && !isSpace(i - 1)) {
+    i--;
+  }
+  return i;
+}
+
 /// Streams a document's text chunks to the speech engine, remembers where the
 /// user is, and saves progress on the server so listening can resume anywhere.
 class ReaderController extends ChangeNotifier {
@@ -45,7 +90,7 @@ class ReaderController extends ChangeNotifier {
 
   final ApiClient api;
   final DocumentInfo doc;
-  final Speaker speaker;
+  Speaker speaker;
   final int batchSize;
 
   final List<TextChunk> _buffer = [];
@@ -53,6 +98,9 @@ class ReaderController extends ChangeNotifier {
   int _fetchFrom = 0;
   int _generation = 0;
   String currentText = '';
+
+  /// Document offset of the first character of [currentText].
+  int currentOffset = 0;
   bool playing = false;
   bool finished = false;
   String? error;
@@ -70,6 +118,9 @@ class ReaderController extends ChangeNotifier {
     final gen = ++_generation;
     _buffer.clear();
     _fetchFrom = _offset;
+    // Unfinished last sentence of the previous passage, spoken with the next one.
+    var carry = '';
+    var carryOffset = 0;
     notifyListeners();
 
     try {
@@ -78,24 +129,54 @@ class ReaderController extends ChangeNotifier {
           final next = await api.chunks(doc.id, start: _fetchFrom, limit: batchSize);
           if (gen != _generation) return;
           if (next.isEmpty) {
-            finished = true;
-            _offset = 0;
-            currentText = '';
-            _saveProgress(0);
-            break;
+            if (carry.isNotEmpty) {
+              // Document ended mid-sentence: speak what's left.
+              _buffer.add(TextChunk(carryOffset, carry));
+              carry = '';
+            } else {
+              finished = true;
+              _offset = 0;
+              currentText = '';
+              _saveProgress(0);
+              break;
+            }
+          } else {
+            _buffer.addAll(next);
+            final last = next.last;
+            _fetchFrom = last.offset + last.text.length;
           }
-          _buffer.addAll(next);
-          final last = next.last;
-          _fetchFrom = last.offset + last.text.length;
         }
         final chunk = _buffer.removeAt(0);
-        _offset = chunk.offset;
-        currentText = chunk.text;
+        var text = chunk.text;
+        var offset = chunk.offset;
+        if (carry.isNotEmpty) {
+          // Rebuild the original span so on-screen offsets (tap-to-read) stay exact.
+          final gap = chunk.offset - (carryOffset + carry.length);
+          text = carry + (gap > 0 ? '\n${' ' * (gap - 1)}' : '') + chunk.text;
+          offset = carryOffset;
+          carry = '';
+        }
+        // Passages are cut at ~1500 chars, often mid-sentence. Hold back the
+        // unfinished last sentence so the voice doesn't break it in two.
+        final moreFollows = chunk.offset + chunk.text.length < doc.textLength;
+        final cut = moreFollows ? lastSentenceEnd(text) : text.length;
+        final tail = text.substring(cut);
+        final tailStart = cut + (tail.length - tail.trimLeft().length);
+
+        _offset = offset;
+        currentOffset = offset;
+        currentText = text;
         notifyListeners();
         _saveProgress(_offset);
-        await speaker.speak(chunk.text);
+        await speaker.speak(joinLines(text.substring(0, cut)));
         if (gen != _generation) return;
-        _offset = chunk.offset + chunk.text.length;
+        if (tail.trim().isNotEmpty) {
+          carry = text.substring(tailStart);
+          carryOffset = offset + tailStart;
+          _offset = carryOffset; // resume replays the unfinished sentence
+        } else {
+          _offset = offset + text.length;
+        }
       }
     } on ApiException catch (e) {
       if (gen == _generation) error = e.message;
@@ -120,6 +201,30 @@ class ReaderController extends ChangeNotifier {
     final wasPlaying = playing;
     await pause();
     _offset = (_offset + chars).clamp(0, doc.textLength);
+    notifyListeners();
+    if (wasPlaying) await play();
+  }
+
+  /// Start reading from the word at [index] within [currentText]. Restarts
+  /// playback if it was running, and starts it if it wasn't.
+  Future<void> playFromCurrentText(int index) async {
+    if (currentText.isEmpty) return;
+    await pause();
+    _offset = (currentOffset + wordStartAt(currentText, index)).clamp(0, doc.textLength);
+    finished = false;
+    notifyListeners();
+    await play();
+  }
+
+  /// Swap the voice (e.g. natural <-> device), continuing from the current
+  /// passage if it was playing.
+  Future<void> useSpeaker(Speaker next) async {
+    if (identical(next, speaker)) return;
+    final wasPlaying = playing;
+    await pause();
+    speaker = next;
+    await speaker.init();
+    await speaker.setRate(speed);
     notifyListeners();
     if (wasPlaying) await play();
   }

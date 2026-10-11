@@ -16,6 +16,10 @@ class Config:
     LLM_CONTEXT_CHARS = int(os.environ.get("LLM_CONTEXT_CHARS", "60000"))
     # Approximate size of one chunk handed to the device TTS engine.
     TTS_CHUNK_CHARS = int(os.environ.get("TTS_CHUNK_CHARS", "1500"))
+    # Piper natural-voice server (empty = disabled, app uses the device voice).
+    PIPER_URL = os.environ.get("PIPER_URL", "")
+    # Longest text accepted per synthesis request (the app sends one sentence).
+    TTS_MAX_CHARS = int(os.environ.get("TTS_MAX_CHARS", "1000"))
 
 
 class TestConfig(Config):
@@ -24,3 +28,4 @@ class TestConfig(Config):
     JWT_SECRET_KEY = "test-secret-key-that-is-long-enough-32b"
     UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "readaloud-test-uploads")
     GEMINI_API_KEY = ""
+    PIPER_URL = ""
