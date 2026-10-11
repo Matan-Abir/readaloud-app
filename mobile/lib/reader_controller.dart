@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 import 'api.dart';
+import 'reading_text.dart';
 
 /// Speech engine abstraction so the reader logic can be tested without a device.
 abstract class Speaker {
@@ -33,72 +34,106 @@ class DeviceSpeaker implements Speaker {
   Future<void> setRate(double multiplier) => _tts.setSpeechRate((0.5 * multiplier).clamp(0.1, 1.0));
 }
 
-/// Streams a document's text chunks to the speech engine, remembers where the
-/// user is, and saves progress on the server so listening can resume anywhere.
+/// Loads a document's text, reads it aloud one sentence at a time, remembers
+/// which sentence is being read, and saves progress on the server so listening
+/// can resume anywhere.
 class ReaderController extends ChangeNotifier {
   ReaderController({
     required this.api,
     required this.doc,
     required this.speaker,
-    this.batchSize = 5,
-  }) : _offset = doc.progressChar;
+    this.pageSize = 50,
+  });
 
   final ApiClient api;
   final DocumentInfo doc;
   final Speaker speaker;
-  final int batchSize;
+  final int pageSize;
 
-  final List<TextChunk> _buffer = [];
-  int _offset;
-  int _fetchFrom = 0;
-  int _generation = 0;
-  String currentText = '';
+  ReadingText? content;
+  bool loading = false;
+  double loaded = 0;
+
+  /// Index of the sentence being read (or that will be read on play).
+  int current = 0;
   bool playing = false;
   bool finished = false;
   String? error;
   double speed = 1.0;
+  int _generation = 0;
 
-  double get progress => doc.textLength == 0 ? 0 : (_offset / doc.textLength).clamp(0.0, 1.0);
+  int get sentenceCount => content?.sentences.length ?? 0;
 
-  Future<void> init() => speaker.init();
+  double get progress {
+    final c = content;
+    if (c == null || doc.textLength == 0 || c.sentences.isEmpty) return 0;
+    return (c.sourceOffset(c.sentences[current].start) / doc.textLength).clamp(0.0, 1.0);
+  }
+
+  /// Loads the whole document text and prepares the voice.
+  Future<void> init() async {
+    await Future.wait([load(), _initSpeaker()]);
+  }
+
+  Future<void> _initSpeaker() async {
+    try {
+      await speaker.init();
+      await speaker.setRate(speed);
+    } catch (_) {
+      // Some browsers refuse voice settings before the first user gesture;
+      // speaking still works with the defaults.
+    }
+  }
+
+  Future<void> load() async {
+    if (loading) return;
+    loading = true;
+    error = null;
+    loaded = 0;
+    notifyListeners();
+    try {
+      final chunks = <TextChunk>[];
+      var start = 0;
+      while (true) {
+        final page = await api.chunks(doc.id, start: start, limit: pageSize);
+        if (page.isEmpty) break;
+        chunks.addAll(page);
+        start = page.last.offset + page.last.text.length;
+        if (doc.textLength > 0) loaded = (start / doc.textLength).clamp(0.0, 1.0);
+        notifyListeners();
+      }
+      final c = ReadingText.fromChunks(chunks);
+      content = c;
+      current = c.sentences.isEmpty ? 0 : c.sentenceAtSource(doc.progressChar);
+    } on ApiException catch (e) {
+      error = e.message;
+    }
+    loading = false;
+    notifyListeners();
+  }
 
   Future<void> play() async {
-    if (playing) return;
+    final c = content;
+    if (playing || c == null || c.sentences.isEmpty) return;
+    if (finished) current = 0;
     playing = true;
     finished = false;
     error = null;
     final gen = ++_generation;
-    _buffer.clear();
-    _fetchFrom = _offset;
     notifyListeners();
 
-    try {
-      while (playing && gen == _generation) {
-        if (_buffer.isEmpty) {
-          final next = await api.chunks(doc.id, start: _fetchFrom, limit: batchSize);
-          if (gen != _generation) return;
-          if (next.isEmpty) {
-            finished = true;
-            _offset = 0;
-            currentText = '';
-            _saveProgress(0);
-            break;
-          }
-          _buffer.addAll(next);
-          final last = next.last;
-          _fetchFrom = last.offset + last.text.length;
-        }
-        final chunk = _buffer.removeAt(0);
-        _offset = chunk.offset;
-        currentText = chunk.text;
-        notifyListeners();
-        _saveProgress(_offset);
-        await speaker.speak(chunk.text);
-        if (gen != _generation) return;
-        _offset = chunk.offset + chunk.text.length;
+    while (playing && gen == _generation) {
+      if (current >= c.sentences.length) {
+        finished = true;
+        current = 0;
+        _saveProgress(0);
+        break;
       }
-    } on ApiException catch (e) {
-      if (gen == _generation) error = e.message;
+      _saveProgress(c.sourceOffset(c.sentences[current].start));
+      await speaker.speak(c.sentenceText(current));
+      if (gen != _generation) return;
+      current++;
+      if (current < c.sentences.length) notifyListeners();
     }
     if (gen == _generation) {
       playing = false;
@@ -110,18 +145,31 @@ class ReaderController extends ChangeNotifier {
     if (!playing) return;
     playing = false;
     _generation++;
-    _buffer.clear();
     await speaker.stop();
     notifyListeners();
   }
 
-  /// Jump by roughly [chars] characters (negative = back) and keep playing if we were.
-  Future<void> seek(int chars) async {
+  /// Moves to sentence [index] and keeps playing if we were.
+  Future<void> jumpTo(int index) async {
     final wasPlaying = playing;
-    await pause();
-    _offset = (_offset + chars).clamp(0, doc.textLength);
-    notifyListeners();
+    await _moveTo(index);
     if (wasPlaying) await play();
+  }
+
+  /// Starts reading from sentence [index] (used when the user taps text).
+  Future<void> playFrom(int index) async {
+    await _moveTo(index);
+    await play();
+  }
+
+  Future<void> _moveTo(int index) async {
+    final c = content;
+    if (c == null || c.sentences.isEmpty) return;
+    await pause();
+    current = index.clamp(0, c.sentences.length - 1);
+    finished = false;
+    _saveProgress(c.sourceOffset(c.sentences[current].start));
+    notifyListeners();
   }
 
   Future<void> setSpeed(double multiplier) async {

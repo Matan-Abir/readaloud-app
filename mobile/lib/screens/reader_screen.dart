@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../api.dart';
+import '../platform_speaker.dart' if (dart.library.js_interop) '../web_speaker.dart';
 import '../reader_controller.dart';
+import 'listen_tab.dart';
 
 class ReaderScreen extends StatefulWidget {
   const ReaderScreen({super.key, required this.api, required this.doc, this.speaker});
@@ -18,7 +20,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late final ReaderController _reader = ReaderController(
     api: widget.api,
     doc: widget.doc,
-    speaker: widget.speaker ?? DeviceSpeaker(),
+    speaker: widget.speaker ?? createPlatformSpeaker(),
   )..init();
 
   @override
@@ -41,92 +43,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ]),
         ),
         body: TabBarView(children: [
-          _ListenTab(reader: _reader),
+          ListenTab(reader: _reader),
           _SummaryTab(api: widget.api, doc: widget.doc),
           _AskTab(api: widget.api, doc: widget.doc),
         ]),
       ),
-    );
-  }
-}
-
-class _ListenTab extends StatelessWidget {
-  const _ListenTab({required this.reader});
-
-  final ReaderController reader;
-
-  static const _speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: reader,
-      builder: (context, _) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Expanded(
-                child: Card(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      reader.finished
-                          ? 'Finished. Press play to start over.'
-                          : reader.currentText.isEmpty
-                              ? 'Press play to start listening.'
-                              : reader.currentText,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
-                    ),
-                  ),
-                ),
-              ),
-              if (reader.error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(reader.error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                ),
-              const SizedBox(height: 12),
-              LinearProgressIndicator(value: reader.progress),
-              const SizedBox(height: 4),
-              Text('${(reader.progress * 100).round()}%'),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    iconSize: 32,
-                    tooltip: 'Back',
-                    icon: const Icon(Icons.replay_10),
-                    onPressed: () => reader.seek(-1500),
-                  ),
-                  const SizedBox(width: 12),
-                  IconButton.filled(
-                    iconSize: 48,
-                    tooltip: reader.playing ? 'Pause' : 'Play',
-                    icon: Icon(reader.playing ? Icons.pause : Icons.play_arrow),
-                    onPressed: reader.playing ? reader.pause : reader.play,
-                  ),
-                  const SizedBox(width: 12),
-                  IconButton(
-                    iconSize: 32,
-                    tooltip: 'Forward',
-                    icon: const Icon(Icons.forward_10),
-                    onPressed: () => reader.seek(1500),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SegmentedButton<double>(
-                showSelectedIcon: false,
-                segments: [for (final s in _speeds) ButtonSegment(value: s, label: Text('${s}x'))],
-                selected: {reader.speed},
-                onSelectionChanged: (v) => reader.setSpeed(v.first),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

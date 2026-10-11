@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,18 +24,20 @@ class FakeSpeaker implements Speaker {
   Future<void> setRate(double multiplier) async => rate = multiplier;
 }
 
-/// Serves a 3-chunk document and records progress saves.
+/// Serves a small document (server text "One. Two.\nThree.\n\nFour.") in
+/// pages of two chunks, and records progress saves.
 http.Client fakeBackend(List<int> saved) {
   const chunks = [
-    {'offset': 0, 'text': 'One.'},
-    {'offset': 5, 'text': 'Two.'},
-    {'offset': 10, 'text': 'Three.'},
+    {'offset': 0, 'text': 'One. Two.'},
+    {'offset': 9, 'text': 'Three.'},
+    {'offset': 17, 'text': 'Four.'},
   ];
   return MockClient((req) async {
     if (req.url.path.endsWith('/chunks')) {
       final start = int.parse(req.url.queryParameters['start'] ?? '0');
-      final rest = chunks.where((c) => (c['offset'] as int) >= start).toList();
-      return http.Response(jsonEncode({'chunks': rest, 'text_length': 16}), 200);
+      final limit = int.parse(req.url.queryParameters['limit'] ?? '5');
+      final rest = chunks.where((c) => (c['offset'] as int) >= start).take(limit).toList();
+      return http.Response(jsonEncode({'chunks': rest, 'text_length': 22}), 200);
     }
     if (req.url.path.endsWith('/progress')) {
       saved.add(jsonDecode(req.body)['progress_char'] as int);
@@ -44,36 +47,87 @@ http.Client fakeBackend(List<int> saved) {
   });
 }
 
+/// Completes each utterance only when told to, so tests can act mid-sentence.
+class HoldingSpeaker extends FakeSpeaker {
+  Completer<void>? _pending;
+
+  @override
+  Future<void> speak(String text) {
+    spoken.add(text);
+    return (_pending = Completer<void>()).future;
+  }
+
+  void finish() => _pending?.complete();
+
+  @override
+  Future<void> stop() async => finish();
+}
+
 DocumentInfo doc({int progress = 0}) => DocumentInfo(
-    id: 1, title: 't', pageCount: 1, textLength: 16, progressChar: progress);
+    id: 1, title: 't', pageCount: 1, textLength: 22, progressChar: progress);
+
+Future<ReaderController> ready(Speaker speaker, {int progress = 0, List<int>? saved}) async {
+  final reader = ReaderController(
+    api: ApiClient(client: fakeBackend(saved ?? []), baseUrl: 'http://x'),
+    doc: doc(progress: progress),
+    speaker: speaker,
+    pageSize: 2,
+  );
+  await reader.init();
+  return reader;
+}
 
 void main() {
-  test('plays every chunk in order, saves progress, then finishes', () async {
-    final saved = <int>[];
-    final speaker = FakeSpeaker();
-    final reader = ReaderController(
-      api: ApiClient(client: fakeBackend(saved), baseUrl: 'http://x'),
-      doc: doc(),
-      speaker: speaker,
-    );
-    await reader.play();
-    await Future<void>.delayed(Duration.zero); // let fire-and-forget saves land
-    expect(speaker.spoken, ['One.', 'Two.', 'Three.']);
-    expect(reader.finished, isTrue);
-    expect(reader.playing, isFalse);
-    expect(saved.take(3), [0, 5, 10]);
-    expect(saved.last, 0); // reset after finishing
+  test('loads the whole document across pages and splits it into sentences', () async {
+    final reader = await ready(FakeSpeaker());
+    expect(reader.content!.text, 'One. Two. Three.\n\nFour.');
+    expect(reader.sentenceCount, 4);
+    expect(reader.loading, isFalse);
   });
 
-  test('resumes from saved progress', () async {
+  test('reads sentence by sentence, saves progress, then finishes', () async {
+    final saved = <int>[];
     final speaker = FakeSpeaker();
-    final reader = ReaderController(
-      api: ApiClient(client: fakeBackend([]), baseUrl: 'http://x'),
-      doc: doc(progress: 5),
-      speaker: speaker,
-    );
+    final reader = await ready(speaker, saved: saved);
     await reader.play();
-    expect(speaker.spoken, ['Two.', 'Three.']);
+    await Future<void>.delayed(Duration.zero); // let fire-and-forget saves land
+    expect(speaker.spoken, ['One.', 'Two.', 'Three.', 'Four.']);
+    expect(reader.finished, isTrue);
+    expect(reader.playing, isFalse);
+    expect(saved, [0, 5, 9, 17, 0]);
+  });
+
+  test('resumes from the sentence holding the saved progress', () async {
+    final speaker = FakeSpeaker();
+    final reader = await ready(speaker, progress: 10);
+    expect(reader.current, 2);
+    await reader.play();
+    expect(speaker.spoken, ['Three.', 'Four.']);
+  });
+
+  test('tapping a sentence while reading restarts from it', () async {
+    final speaker = HoldingSpeaker();
+    final reader = await ready(speaker);
+    final playing = reader.play();
+    await Future<void>.delayed(Duration.zero);
+    expect(speaker.spoken, ['One.']);
+
+    final tapped = reader.playFrom(3);
+    await Future<void>.delayed(Duration.zero);
+    expect(reader.current, 3);
+    expect(speaker.spoken, ['One.', 'Four.']);
+    speaker.finish();
+    await Future.wait([playing, tapped]);
+    expect(reader.finished, isTrue);
+  });
+
+  test('next and previous move one sentence while paused', () async {
+    final reader = await ready(FakeSpeaker());
+    await reader.jumpTo(reader.current + 1);
+    expect(reader.current, 1);
+    await reader.jumpTo(reader.current - 1);
+    await reader.jumpTo(reader.current - 1);
+    expect(reader.current, 0);
   });
 
   test('reports server errors instead of throwing', () async {
@@ -85,18 +139,16 @@ void main() {
       doc: doc(),
       speaker: FakeSpeaker(),
     );
-    await reader.play();
+    await reader.init();
     expect(reader.error, 'boom');
+    expect(reader.content, isNull);
+    await reader.play(); // nothing to play, must not throw
     expect(reader.playing, isFalse);
   });
 
   test('speed change is forwarded to the speaker', () async {
     final speaker = FakeSpeaker();
-    final reader = ReaderController(
-      api: ApiClient(client: fakeBackend([]), baseUrl: 'http://x'),
-      doc: doc(),
-      speaker: speaker,
-    );
+    final reader = await ready(speaker);
     await reader.setSpeed(1.5);
     expect(speaker.rate, 1.5);
   });
