@@ -23,10 +23,11 @@ def create_app(config=Config):
     CORS(app)
     PrometheusMetrics(app, group_by="url_rule", path="/metrics")
 
-    from . import auth, documents, tts
+    from . import analytics, auth, documents, tts
     app.register_blueprint(auth.bp)
     app.register_blueprint(documents.bp)
     app.register_blueprint(tts.bp)
+    app.register_blueprint(analytics.bp)
 
     @app.get("/healthz")
     def healthz():
