@@ -10,6 +10,8 @@ class Config:
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-only-change-me")
     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/data/uploads")
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
+    # Plain-text uploads are much denser than PDFs, so they get a lower cap.
+    MAX_TEXT_BYTES = int(os.environ.get("MAX_TEXT_MB", "5")) * 1024 * 1024
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
     GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
     # Characters of document text sent to the LLM as context.
