@@ -63,4 +63,25 @@ void main() {
       throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('Cannot reach'))),
     );
   });
+
+  test('natural voice: availability and audio bytes', () async {
+    final api = ApiClient(
+      baseUrl: 'http://x',
+      client: MockClient((req) async {
+        if (req.method == 'GET') return http.Response('{"available":true}', 200);
+        expect(jsonDecode(req.body), {'text': 'Hi.'});
+        return http.Response.bytes([82, 73, 70, 70], 200, headers: {'content-type': 'audio/wav'});
+      }),
+    );
+    expect(await api.naturalVoiceAvailable(), isTrue);
+    expect(await api.speech('Hi.'), [82, 73, 70, 70]);
+  });
+
+  test('natural voice: server without Piper is an error', () async {
+    final api = ApiClient(
+      baseUrl: 'http://x',
+      client: MockClient((_) async => http.Response('{"error":"no voice"}', 503)),
+    );
+    expect(() => api.speech('Hi.'), throwsA(isA<ApiException>()));
+  });
 }

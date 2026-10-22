@@ -14,6 +14,15 @@ abstract class Speaker {
   Future<void> setRate(double multiplier);
 }
 
+/// Extras for speakers that fetch their audio, like the Piper voice.
+abstract interface class PreloadingSpeaker implements Speaker {
+  /// Shown under the player, e.g. "Natural voice (Piper)".
+  String get voiceName;
+
+  /// Starts fetching [text] now so it can play without a pause later.
+  void preload(String text);
+}
+
 class DeviceSpeaker implements Speaker {
   final FlutterTts _tts = FlutterTts();
 
@@ -59,6 +68,7 @@ class ReaderController extends ChangeNotifier {
   bool playing = false;
   bool finished = false;
   String? error;
+  String? voiceName;
   double speed = 1.0;
   int _generation = 0;
 
@@ -82,6 +92,11 @@ class ReaderController extends ChangeNotifier {
     } catch (_) {
       // Some browsers refuse voice settings before the first user gesture;
       // speaking still works with the defaults.
+    }
+    final s = speaker;
+    if (s is PreloadingSpeaker) {
+      voiceName = s.voiceName;
+      notifyListeners();
     }
   }
 
@@ -130,6 +145,7 @@ class ReaderController extends ChangeNotifier {
         break;
       }
       _saveProgress(c.sourceOffset(c.sentences[current].start));
+      _preload(current + 1);
       await speaker.speak(c.sentenceText(current));
       if (gen != _generation) return;
       current++;
@@ -176,6 +192,15 @@ class ReaderController extends ChangeNotifier {
     speed = multiplier;
     await speaker.setRate(multiplier);
     notifyListeners();
+  }
+
+  /// Lets a fetching speaker get the next sentence ready while this one plays.
+  void _preload(int index) {
+    final c = content;
+    final s = speaker;
+    if (s is PreloadingSpeaker && c != null && index < c.sentences.length) {
+      s.preload(c.sentenceText(index));
+    }
   }
 
   void _saveProgress(int value) {

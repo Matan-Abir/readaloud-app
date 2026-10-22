@@ -3,6 +3,8 @@ import 'dart:js_interop';
 
 import 'package:web/web.dart' as web;
 
+import 'api.dart';
+import 'piper_speaker.dart';
 import 'reader_controller.dart';
 
 /// The browser's own speech engine, used directly.
@@ -57,4 +59,6 @@ class WebSpeaker implements Speaker {
   }
 }
 
-Speaker createPlatformSpeaker() => WebSpeaker();
+/// In the browser: the server's Piper voice when it has one, otherwise the
+/// browser's own voice.
+Speaker createPlatformSpeaker(ApiClient api) => PiperSpeaker(api, WebSpeaker());

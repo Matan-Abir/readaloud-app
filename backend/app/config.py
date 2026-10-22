@@ -16,6 +16,10 @@ class Config:
     LLM_CONTEXT_CHARS = int(os.environ.get("LLM_CONTEXT_CHARS", "60000"))
     # Approximate size of one chunk handed to the device TTS engine.
     TTS_CHUNK_CHARS = int(os.environ.get("TTS_CHUNK_CHARS", "1500"))
+    # Piper voice model (.onnx, with its .onnx.json next to it) for the natural voice.
+    PIPER_VOICE = os.environ.get("PIPER_VOICE", os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "voices", "en_US-lessac-medium.onnx"))
 
 
 class TestConfig(Config):
@@ -24,3 +28,4 @@ class TestConfig(Config):
     JWT_SECRET_KEY = "test-secret-key-that-is-long-enough-32b"
     UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "readaloud-test-uploads")
     GEMINI_API_KEY = ""
+    PIPER_VOICE = ""

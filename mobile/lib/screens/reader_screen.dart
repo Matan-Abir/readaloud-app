@@ -20,7 +20,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late final ReaderController _reader = ReaderController(
     api: widget.api,
     doc: widget.doc,
-    speaker: widget.speaker ?? createPlatformSpeaker(),
+    speaker: widget.speaker ?? createPlatformSpeaker(widget.api),
   )..init();
 
   @override

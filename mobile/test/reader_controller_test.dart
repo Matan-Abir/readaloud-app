@@ -63,6 +63,17 @@ class HoldingSpeaker extends FakeSpeaker {
   Future<void> stop() async => finish();
 }
 
+/// Records which sentences it was asked to fetch ahead of time.
+class PreloadSpeaker extends FakeSpeaker implements PreloadingSpeaker {
+  final preloaded = <String>[];
+
+  @override
+  String get voiceName => 'Test voice';
+
+  @override
+  void preload(String text) => preloaded.add(text);
+}
+
 DocumentInfo doc({int progress = 0}) => DocumentInfo(
     id: 1, title: 't', pageCount: 1, textLength: 22, progressChar: progress);
 
@@ -151,5 +162,14 @@ void main() {
     final reader = await ready(speaker);
     await reader.setSpeed(1.5);
     expect(speaker.rate, 1.5);
+  });
+
+  test('a preloading speaker gets each next sentence ahead of time', () async {
+    final speaker = PreloadSpeaker();
+    final reader = await ready(speaker);
+    expect(reader.voiceName, 'Test voice');
+    await reader.play();
+    expect(speaker.spoken, ['One.', 'Two.', 'Three.', 'Four.']);
+    expect(speaker.preloaded, ['Two.', 'Three.', 'Four.']);
   });
 }

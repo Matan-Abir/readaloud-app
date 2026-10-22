@@ -13,6 +13,21 @@ cp .env.example .env      # then fill in secrets, incl. GEMINI_API_KEY
 docker compose up --build # API on http://localhost:8000
 ```
 
+## Natural voice (Piper)
+
+In the web app the Listen tab reads with a Piper voice when the backend has one,
+and with the browser's own voice otherwise. The backend loads
+`backend/voices/en_US-lessac-medium.onnx` (or the file in `PIPER_VOICE`):
+
+```bash
+cd backend
+python -m piper.download_voices --download-dir voices en_US-lessac-medium
+```
+
+`GET /api/tts` says whether the voice is available; `POST /api/tts {"text": ...}`
+returns WAV audio. The app fetches one sentence at a time and the next one
+while the current one plays.
+
 ## Run the tests
 
 ```bash

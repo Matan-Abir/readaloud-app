@@ -182,6 +182,8 @@ class _ListenTabState extends State<ListenTab> with AutomaticKeepAliveClientMixi
           Text(reader.finished
               ? 'Finished. Press play to start over.'
               : '${(reader.progress * 100).round()}%  ·  Tap any sentence to read from there'),
+          if (reader.voiceName != null)
+            Text(reader.voiceName!, style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
