@@ -34,6 +34,44 @@ def _extract(path):
     return text.strip(), len(pages)
 
 
+def decode_text(data):
+    """Decode an uploaded text file: BOM first, then UTF-8, then Windows-1252."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode("cp1252")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
+def _extract_txt(path):
+    with open(path, "rb") as f:
+        text = decode_text(f.read())
+    if "\x00" in text:
+        raise ValueError("binary file")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text).strip()
+    lines = [ln for ln in text.split("\n") if ln]
+    # One paragraph per line and no blank lines (common in .txt files): make
+    # each line its own paragraph so the reader doesn't join them like PDF wraps.
+    if "\n\n" not in text and lines and sorted(map(len, lines))[len(lines) // 2] > 100:
+        text = text.replace("\n", "\n\n")
+    return text
+
+
+def _save_upload(file, ext):
+    upload_dir = current_app.config["UPLOAD_DIR"]
+    os.makedirs(upload_dir, exist_ok=True)
+    stored = os.path.join(upload_dir, f"{uuid.uuid4().hex}{ext}")
+    file.save(stored)
+    return stored
+
+
 def split_chunks(text, start, size):
     """Yield (offset, chunk) pairs from `start`, breaking at sentence ends."""
     pos = start
@@ -56,21 +94,33 @@ def upload():
     file = request.files.get("file")
     if file is None or not file.filename:
         return jsonify(error="No file provided (field name: file)"), 400
-    if not file.filename.lower().endswith(".pdf"):
-        return jsonify(error="Only PDF files are supported"), 400
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in (".pdf", ".txt"):
+        return jsonify(error="Only PDF and .txt files are supported"), 400
 
-    upload_dir = current_app.config["UPLOAD_DIR"]
-    os.makedirs(upload_dir, exist_ok=True)
-    stored = os.path.join(upload_dir, f"{uuid.uuid4().hex}.pdf")
-    file.save(stored)
-    try:
-        text, pages = _extract(stored)
-    except (PyPdfError, ValueError, OSError):
-        os.remove(stored)
-        return jsonify(error="Could not read PDF"), 422
-    if not text:
-        os.remove(stored)
-        return jsonify(error="No extractable text (scanned PDFs are not supported yet)"), 422
+    stored = _save_upload(file, ext)
+    if ext == ".txt":
+        if os.path.getsize(stored) > current_app.config["MAX_TEXT_BYTES"]:
+            os.remove(stored)
+            limit_mb = current_app.config["MAX_TEXT_BYTES"] // (1024 * 1024)
+            return jsonify(error=f"Text files can be at most {limit_mb} MB"), 413
+        try:
+            text, pages = _extract_txt(stored), 0
+        except (ValueError, OSError):
+            os.remove(stored)
+            return jsonify(error="Could not read the text file"), 422
+        if not text:
+            os.remove(stored)
+            return jsonify(error="The text file is empty"), 422
+    else:
+        try:
+            text, pages = _extract(stored)
+        except (PyPdfError, ValueError, OSError):
+            os.remove(stored)
+            return jsonify(error="Could not read PDF"), 422
+        if not text:
+            os.remove(stored)
+            return jsonify(error="No extractable text (scanned PDFs are not supported yet)"), 422
 
     title = request.form.get("title") or os.path.splitext(file.filename)[0]
     doc = Document(user_id=int(get_jwt_identity()), title=title[:500],
@@ -79,7 +129,8 @@ def upload():
     db.session.add(doc)
     db.session.commit()
     DOCUMENTS_UPLOADED.inc()
-    DOCUMENT_PAGES.observe(pages)
+    if ext == ".pdf":
+        DOCUMENT_PAGES.observe(pages)
     return jsonify(doc.to_dict()), 201
 
 

@@ -1,7 +1,7 @@
 from prometheus_client import Counter, Histogram
 
 USERS_REGISTERED = Counter("readaloud_users_registered_total", "Users registered")
-DOCUMENTS_UPLOADED = Counter("readaloud_documents_uploaded_total", "PDF documents uploaded")
+DOCUMENTS_UPLOADED = Counter("readaloud_documents_uploaded_total", "Documents uploaded (PDF and .txt)")
 DOCUMENT_PAGES = Histogram(
     "readaloud_document_pages",
     "Pages per uploaded document",
