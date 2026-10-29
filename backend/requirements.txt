@@ -1,5 +1,7 @@
 Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
+# 2.1 switched postgresql:// to psycopg 3; we ship psycopg2.
+SQLAlchemy==2.0.55
 Flask-Migrate==4.0.7
 Flask-JWT-Extended==4.6.0
 Flask-Cors==4.0.1
