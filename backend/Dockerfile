@@ -27,9 +27,10 @@ COPY --chown=appuser app ./app
 COPY --chown=appuser wsgi.py .
 COPY --chown=appuser migrations ./migrations
 ENV FLASK_APP=wsgi:app
-USER appuser
+USER 10001
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD ["python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"]
 # Long timeout: big PDFs take a while to extract on upload.
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", \
      "--access-logfile", "-", "wsgi:app"]
