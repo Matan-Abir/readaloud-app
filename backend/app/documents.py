@@ -202,6 +202,7 @@ def _call_llm(kind, fn, *args):
     try:
         result = fn(*args)
     except llm.LLMError as exc:
+        current_app.logger.warning("LLM %s call failed: %s", kind, exc)
         LLM_REQUESTS.labels(kind, "error").inc()
         return None, (jsonify(error=str(exc)), 502)
     LLM_REQUESTS.labels(kind, "ok").inc()
