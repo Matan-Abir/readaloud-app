@@ -13,11 +13,27 @@ class LLMError(Exception):
     pass
 
 
+def model_name():
+    """Configured model, tolerant of quotes, spaces and a 'models/' prefix."""
+    name = (current_app.config["GEMINI_MODEL"] or "").strip().strip("'\"").strip()
+    if name.startswith("models/"):
+        name = name[len("models/"):]
+    return name
+
+
+def _google_error(resp):
+    try:
+        return resp.json()["error"]["message"]
+    except (KeyError, ValueError, TypeError):
+        return resp.text[:300]
+
+
 def generate(prompt):
     key = current_app.config["GEMINI_API_KEY"]
     if not key:
         raise LLMError("LLM is not configured (GEMINI_API_KEY missing)")
-    url = API_URL.format(model=current_app.config["GEMINI_MODEL"])
+    model = model_name()
+    url = API_URL.format(model=model)
     resp = None
     for attempt in range(MAX_ATTEMPTS):
         try:
@@ -28,11 +44,16 @@ def generate(prompt):
                 timeout=current_app.config["LLM_TIMEOUT_SECONDS"],
             )
         except requests.RequestException as exc:
+            current_app.logger.warning("Gemini request to %s (model %r) failed: %s", url, model, exc)
             raise LLMError(f"LLM request failed: {exc}") from exc
         if resp.status_code not in RETRYABLE or attempt == MAX_ATTEMPTS - 1:
             break
         time.sleep(2 ** attempt)
     if resp.status_code != 200:
+        # The key travels in a header, so neither the URL nor Google's message contain it.
+        current_app.logger.warning(
+            "Gemini HTTP %s from %s (model %r): %s",
+            resp.status_code, url, model, _google_error(resp))
         raise LLMError(f"LLM returned HTTP {resp.status_code}")
     try:
         parts = resp.json()["candidates"][0]["content"]["parts"]

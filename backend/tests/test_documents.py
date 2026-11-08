@@ -1,3 +1,4 @@
+import pytest
 import io
 from unittest import mock
 
@@ -128,3 +129,15 @@ def test_llm_uses_configured_model_and_timeout(app):
         assert llm.generate("hi") == "ok"
     assert "/models/some-model:generateContent" in post.call_args.args[0]
     assert post.call_args.kwargs["timeout"] == 7
+
+
+def test_llm_model_name_is_cleaned_and_errors_are_logged(app, caplog):
+    app.config.update(GEMINI_API_KEY="secret-key", GEMINI_MODEL=' "models/m-1" ')
+    resp = mock.Mock(status_code=404)
+    resp.json.return_value = {"error": {"message": "models/m-1 is not found"}}
+    with mock.patch.object(llm.requests, "post", return_value=resp) as post:
+        with pytest.raises(llm.LLMError):
+            llm.generate("hi")
+    assert "/models/m-1:generateContent" in post.call_args.args[0]
+    assert "HTTP 404" in caplog.text and "m-1 is not found" in caplog.text
+    assert "secret-key" not in caplog.text
