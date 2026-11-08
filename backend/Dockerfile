@@ -19,6 +19,9 @@ FROM python:3.12.16-slim-trixie AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 # Prometheus metric files shared by the gunicorn workers (see gunicorn.conf.py).
 ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-metrics
+# Debian security fixes published after the base image was built (Trivy gate).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /data/uploads "$PROMETHEUS_MULTIPROC_DIR" \
     && chown appuser /data/uploads "$PROMETHEUS_MULTIPROC_DIR"
