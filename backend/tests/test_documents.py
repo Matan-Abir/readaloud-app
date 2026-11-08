@@ -118,3 +118,13 @@ def test_llm_not_configured_returns_502(client, auth, upload):
 def test_ask_requires_question(client, auth, upload):
     doc_id = upload().get_json()["id"]
     assert client.post(f"/api/documents/{doc_id}/ask", headers=auth, json={}).status_code == 400
+
+
+def test_llm_uses_configured_model_and_timeout(app):
+    app.config.update(GEMINI_API_KEY="k", GEMINI_MODEL="some-model", LLM_TIMEOUT_SECONDS=7)
+    resp = mock.Mock(status_code=200)
+    resp.json.return_value = {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+    with mock.patch.object(llm.requests, "post", return_value=resp) as post:
+        assert llm.generate("hi") == "ok"
+    assert "/models/some-model:generateContent" in post.call_args.args[0]
+    assert post.call_args.kwargs["timeout"] == 7

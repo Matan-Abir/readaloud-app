@@ -13,7 +13,10 @@ class Config:
     # Plain-text uploads are much denser than PDFs, so they get a lower cap.
     MAX_TEXT_BYTES = int(os.environ.get("MAX_TEXT_MB", "5")) * 1024 * 1024
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+    # flash-lite answers in a few seconds; the *-latest aliases can take 30s+.
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+    # Seconds to wait for one Gemini call (kept under gunicorn's 120s timeout).
+    LLM_TIMEOUT_SECONDS = int(os.environ.get("LLM_TIMEOUT_SECONDS", "45"))
     # Characters of document text sent to the LLM as context.
     LLM_CONTEXT_CHARS = int(os.environ.get("LLM_CONTEXT_CHARS", "60000"))
     # Approximate size of one chunk handed to the device TTS engine.

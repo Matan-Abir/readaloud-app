@@ -25,7 +25,7 @@ def generate(prompt):
                 url,
                 headers={"x-goog-api-key": key},
                 json={"contents": [{"parts": [{"text": prompt}]}]},
-                timeout=60,
+                timeout=current_app.config["LLM_TIMEOUT_SECONDS"],
             )
         except requests.RequestException as exc:
             raise LLMError(f"LLM request failed: {exc}") from exc
