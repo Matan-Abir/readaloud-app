@@ -18,9 +18,53 @@ def test_upload_list_get_delete(client, auth, upload):
     assert client.get(f"/api/documents/{doc_id}", headers=auth).status_code == 404
 
 
-def test_rejects_non_pdf(client, auth):
-    r = client.post("/api/documents", headers=auth, **_multipart("a.txt", b"hi"))
+def test_rejects_unsupported_type(client, auth):
+    r = client.post("/api/documents", headers=auth, **_multipart("a.docx", b"hi"))
     assert r.status_code == 400
+
+
+def _upload_txt(client, auth, data, name="notes.txt"):
+    return client.post("/api/documents", headers=auth, **_multipart(name, data))
+
+
+def _full_text(client, auth, doc_id):
+    chunks = client.get(f"/api/documents/{doc_id}/chunks?limit=50", headers=auth).get_json()
+    return " ".join(c["text"] for c in chunks["chunks"])
+
+
+def test_upload_txt_feeds_chunks(client, auth):
+    r = _upload_txt(client, auth, "First sentence. Second one!\r\nThird?".encode(), "My Notes.TXT")
+    assert r.status_code == 201
+    doc = r.get_json()
+    assert doc["title"] == "My Notes"
+    assert doc["page_count"] == 0
+    assert _full_text(client, auth, doc["id"]) == "First sentence. Second one!\nThird?"
+
+
+def test_txt_decoding_fallbacks(client, auth):
+    cases = {
+        "utf-8": "Café déjà vu.".encode("utf-8"),
+        "utf-8 bom": "\ufeffCafé déjà vu.".encode("utf-8"),
+        "utf-16": "Café déjà vu.".encode("utf-16"),
+        "cp1252": "Café déjà vu.".encode("cp1252"),
+    }
+    for name, data in cases.items():
+        doc_id = _upload_txt(client, auth, data).get_json()["id"]
+        assert _full_text(client, auth, doc_id) == "Café déjà vu.", name
+
+
+def test_txt_one_paragraph_per_line_becomes_paragraphs(client, auth):
+    para = "This is a long paragraph that sits on a single line of the file. " * 3
+    doc_id = _upload_txt(client, auth, f"{para}\n{para}".encode()).get_json()["id"]
+    chunks = client.get(f"/api/documents/{doc_id}/chunks", headers=auth).get_json()
+    assert "\n\n" in chunks["chunks"][0]["text"]
+
+
+def test_txt_rejects_empty_binary_and_too_large(client, auth, app):
+    assert _upload_txt(client, auth, b"  \n\t ").status_code == 422
+    assert _upload_txt(client, auth, b"\x00\x01\x02binary").status_code == 422
+    app.config["MAX_TEXT_BYTES"] = 10
+    assert _upload_txt(client, auth, b"x" * 11).status_code == 413
 
 
 def test_rejects_corrupt_pdf(client, auth):

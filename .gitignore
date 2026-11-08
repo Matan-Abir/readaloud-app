@@ -8,3 +8,8 @@ coverage.xml
 *.key
 build/
 .dart_tool/
+
+# Local run data
+backend/readaloud.db
+backend/uploads/
+backend/voices/

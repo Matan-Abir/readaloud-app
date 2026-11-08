@@ -161,6 +161,27 @@ class ApiClient extends ChangeNotifier {
         .toList();
   }
 
+  /// Whether the server can speak with the Piper natural voice.
+  Future<bool> naturalVoiceAvailable() async {
+    final body = await _send(() => _http.get(_uri('/api/tts'), headers: _headers));
+    return body is Map && body['available'] == true;
+  }
+
+  /// WAV audio of [text] spoken by the server's Piper voice.
+  Future<Uint8List> speech(String text) async {
+    final http.Response r;
+    try {
+      r = await _http
+          .post(_uri('/api/tts'), headers: _headers, body: jsonEncode({'text': text}))
+          .timeout(const Duration(seconds: 60));
+    } catch (e) {
+      throw ApiException('Cannot reach the server. Check your connection.');
+    }
+    if (r.statusCode == 200) return r.bodyBytes;
+    _decode(r);
+    throw ApiException('No audio (${r.statusCode})', r.statusCode);
+  }
+
   Future<void> saveProgress(int id, int progressChar) async {
     await _send(() => _http.put(_uri('/api/documents/$id/progress'),
         headers: _headers, body: jsonEncode({'progress_char': progressChar})));

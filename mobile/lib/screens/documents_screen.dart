@@ -27,7 +27,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   Future<void> _upload() async {
     final file = await FilePicker.pickFile(
       type: FileType.custom,
-      allowedExtensions: ['pdf'],
+      allowedExtensions: ['pdf', 'txt'],
     );
     if (file == null) return;
     final bytes = await file.readAsBytes();
@@ -41,6 +41,13 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       if (mounted) setState(() => _uploading = false);
     }
   }
+
+  /// Text files have no pages, so they show "Text file" instead.
+  String _pages(DocumentInfo d) => switch (d.pageCount) {
+        0 => 'Text file',
+        1 => '1 page',
+        final n => '$n pages',
+      };
 
   Future<void> _delete(DocumentInfo d) async {
     final ok = await showDialog<bool>(
@@ -89,7 +96,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         icon: _uploading
             ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
             : const Icon(Icons.upload_file),
-        label: Text(_uploading ? 'Uploading…' : 'Add PDF'),
+        label: Text(_uploading ? 'Uploading…' : 'Add PDF or TXT'),
       ),
       body: RefreshIndicator(
         onRefresh: () async => _reload(),
@@ -113,7 +120,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
               return ListView(children: const [
                 Padding(
                   padding: EdgeInsets.all(48),
-                  child: Text('No documents yet.\nTap "Add PDF" to upload an article.',
+                  child: Text('No documents yet.\nTap "Add PDF or TXT" to upload an article.',
                       textAlign: TextAlign.center),
                 ),
               ]);
@@ -130,7 +137,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('${d.pageCount} pages · ${(d.progress * 100).round()}% listened'),
+                      Text('${_pages(d)} · ${(d.progress * 100).round()}% listened'),
                       const SizedBox(height: 4),
                       LinearProgressIndicator(value: d.progress),
                     ],
