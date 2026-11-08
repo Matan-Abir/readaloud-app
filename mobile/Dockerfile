@@ -25,6 +25,10 @@ RUN flutter build web --release --no-web-resources-cdn --dart-define=API_BASE_UR
 # ---- runtime: nginx (non-root) serving the static files ----
 # The slim variant leaves out curl and other extras (fewer CVEs).
 FROM nginxinc/nginx-unprivileged:1.30.6-alpine3.24-slim AS runtime
+# Alpine security fixes published after the base image was built (Trivy gate).
+USER 0
+RUN apk upgrade --no-cache
+USER 101
 ENV BACKEND_HOST=backend BACKEND_PORT=8000 NGINX_ENVSUBST_FILTER=^BACKEND_
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /home/builder/app/build/web /usr/share/nginx/html
