@@ -32,3 +32,21 @@ def test_speak_returns_wav(client, auth):
     assert r.status_code == 200
     assert r.mimetype == "audio/wav"
     assert r.data[:4] == b"RIFF"
+
+
+def test_speech_is_counted_in_metrics(client, auth):
+    def fake_wav(text, wav):
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(22050)
+        wav.writeframes(b"\0\0" * 10)
+
+    voice = mock.Mock(synthesize_wav=fake_wav)
+    with mock.patch.object(tts, "_load_voice", return_value=voice):
+        client.post("/api/tts", headers=auth, json={"text": "Hello."})
+    client.post("/api/tts", headers=auth, json={"text": " "})
+    body = client.get("/metrics").get_data(as_text=True)
+    assert 'readaloud_tts_requests_total{status="ok"}' in body
+    assert 'readaloud_tts_requests_total{status="bad_request"}' in body
+    assert "readaloud_tts_synthesis_seconds_count" in body
+    assert "readaloud_tts_characters_total" in body

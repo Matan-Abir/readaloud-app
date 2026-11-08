@@ -17,20 +17,22 @@ RUN python -c "import sys, urllib.request as u; \
 # ---- runtime: minimal, non-root, Piper voice included ----
 FROM python:3.12.16-slim-trixie AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Prometheus metric files shared by the gunicorn workers (see gunicorn.conf.py).
+ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-metrics
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /data/uploads && chown appuser /data/uploads
+    && mkdir -p /data/uploads "$PROMETHEUS_MULTIPROC_DIR" \
+    && chown appuser /data/uploads "$PROMETHEUS_MULTIPROC_DIR"
 WORKDIR /app
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* && rm -rf /wheels
 COPY --from=voice /voices ./voices
 COPY --chown=appuser app ./app
-COPY --chown=appuser wsgi.py .
+COPY --chown=appuser wsgi.py gunicorn.conf.py gunicorn_filters.py ./
 COPY --chown=appuser migrations ./migrations
 ENV FLASK_APP=wsgi:app
 USER 10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s \
     CMD ["python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"]
-# Long timeout: big PDFs take a while to extract on upload.
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", \
-     "--access-logfile", "-", "wsgi:app"]
+# Bind address, workers, timeout and logging are in gunicorn.conf.py.
+CMD ["gunicorn", "wsgi:app"]

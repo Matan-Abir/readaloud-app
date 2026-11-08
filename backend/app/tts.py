@@ -6,6 +6,8 @@ import wave
 from flask import Blueprint, Response, current_app, jsonify, request
 from flask_jwt_extended import jwt_required
 
+from .metrics import TTS_CHARACTERS, TTS_REQUESTS, TTS_SYNTHESIS_SECONDS
+
 bp = Blueprint("tts", __name__, url_prefix="/api/tts")
 
 # Longest text accepted in one request; the app sends one sentence at a time.
@@ -58,7 +60,17 @@ def status():
 def speak():
     text = ((request.get_json(silent=True) or {}).get("text") or "").strip()
     if not text or len(text) > MAX_TEXT_CHARS:
+        TTS_REQUESTS.labels(status="bad_request").inc()
         return jsonify(error=f"text is required (max {MAX_TEXT_CHARS} chars)"), 400
     if _load_voice() is None:
+        TTS_REQUESTS.labels(status="unavailable").inc()
         return jsonify(error="Piper voice is not installed on the server"), 503
-    return Response(synthesize(text), mimetype="audio/wav")
+    try:
+        with TTS_SYNTHESIS_SECONDS.time():
+            audio = synthesize(text)
+    except Exception:
+        TTS_REQUESTS.labels(status="error").inc()
+        raise
+    TTS_REQUESTS.labels(status="ok").inc()
+    TTS_CHARACTERS.inc(len(text))
+    return Response(audio, mimetype="audio/wav")
