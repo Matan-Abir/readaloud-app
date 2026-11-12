@@ -82,7 +82,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Library'),
+        title: const Text('My Cool Library'),
         actions: [
           IconButton(
             tooltip: 'Log out',
